@@ -13,7 +13,10 @@ use ntt_messages::{
     transceiver::TransceiverMessage, transceivers::wormhole::WormholeTransceiver,
     trimmed_amount::TrimmedAmount,
 };
-use sdk::transceivers::wormhole::instructions::receive_message::ReceiveMessage;
+use sdk::{
+    accounts::{GoodNTT, NTTAccounts},
+    transceivers::wormhole::instructions::receive_message::ReceiveMessage,
+};
 use solana_program::instruction::InstructionError;
 use solana_program_test::*;
 use solana_sdk::{signature::Keypair, signer::Signer, transaction::TransactionError};
@@ -47,7 +50,7 @@ fn init_transfer_accs_args(
 ) -> (Transfer, TransferArgs) {
     let accs = Transfer {
         payer: ctx.payer.pubkey(),
-        peer: test_data.ntt.peer(OTHER_CHAIN),
+        peer: GoodNTT {}.peer(OTHER_CHAIN),
         mint: test_data.mint,
         from: test_data.user_token_account,
         from_authority: test_data.user.pubkey(),
@@ -72,27 +75,24 @@ fn init_redeem_accs(
 ) -> Redeem {
     Redeem {
         payer: ctx.payer.pubkey(),
-        peer: test_data.ntt.peer(chain_id),
-        transceiver: test_data.ntt.program,
-        transceiver_message: test_data
-            .ntt
-            .transceiver_message(chain_id, ntt_manager_message.sequence),
-        inbox_item: test_data.ntt.inbox_item(chain_id, ntt_manager_message),
-        inbox_rate_limit: test_data.ntt.inbox_rate_limit(chain_id),
+        peer: GoodNTT {}.peer(chain_id),
+        transceiver: GoodNTT {}.program(),
+        transceiver_message: GoodNTT {}.transceiver_message(chain_id, ntt_manager_message.sequence),
+        inbox_item: GoodNTT {}.inbox_item(chain_id, ntt_manager_message),
+        inbox_rate_limit: GoodNTT {}.inbox_rate_limit(chain_id),
         mint: test_data.mint,
     }
 }
 
 fn init_receive_message_accs(
     ctx: &mut ProgramTestContext,
-    test_data: &TestData,
     vaa: Pubkey,
     chain_id: u16,
     sequence: u64,
 ) -> ReceiveMessage {
     ReceiveMessage {
         payer: ctx.payer.pubkey(),
-        peer: test_data.ntt.transceiver_peer(chain_id),
+        peer: GoodNTT {}.transceiver_peer(chain_id),
         vaa,
         chain_id,
         sequence,
@@ -101,7 +101,6 @@ fn init_receive_message_accs(
 
 async fn post_transfer_vaa(
     ctx: &mut ProgramTestContext,
-    test_data: &TestData,
     sequence: u64,
     amount: u64,
     // TODO: this is used for a negative testing of the recipient ntt_manager
@@ -129,7 +128,7 @@ async fn post_transfer_vaa(
             OTHER_MANAGER,
             recipient_ntt_manager
                 .map(|k| k.to_bytes())
-                .unwrap_or_else(|| test_data.ntt.program.to_bytes()),
+                .unwrap_or_else(|| GoodNTT {}.program().to_bytes()),
             ntt_manager_message.clone(),
             vec![],
         );
@@ -147,24 +146,24 @@ async fn post_transfer_vaa(
         payload: transceiver_message,
     };
 
-    let posted_vaa = post_vaa(&test_data.ntt.wormhole, ctx, vaa).await;
+    let posted_vaa = post_vaa(&GoodNTT {}.wormhole(), ctx, vaa).await;
 
     (posted_vaa, ntt_manager_message)
 }
 
-async fn outbound_capacity(ctx: &mut ProgramTestContext, test_data: &TestData) -> u64 {
+async fn outbound_capacity(ctx: &mut ProgramTestContext) -> u64 {
     let clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
     let rate_limit: OutboxRateLimit = ctx
-        .get_account_data_anchor(test_data.ntt.outbox_rate_limit())
+        .get_account_data_anchor(GoodNTT {}.outbox_rate_limit())
         .await;
 
     rate_limit.rate_limit.capacity_at(clock.unix_timestamp)
 }
 
-async fn inbound_capacity(ctx: &mut ProgramTestContext, test_data: &TestData) -> u64 {
+async fn inbound_capacity(ctx: &mut ProgramTestContext) -> u64 {
     let clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
     let rate_limit: InboxRateLimit = ctx
-        .get_account_data_anchor(test_data.ntt.inbox_rate_limit(OTHER_CHAIN))
+        .get_account_data_anchor(GoodNTT {}.inbox_rate_limit(OTHER_CHAIN))
         .await;
 
     rate_limit.rate_limit.capacity_at(clock.unix_timestamp)
@@ -175,22 +174,22 @@ async fn test_cancel() {
     let recipient = Keypair::new();
     let (mut ctx, test_data) = setup(Mode::Locking).await;
 
-    let (vaa0, msg0) = post_transfer_vaa(&mut ctx, &test_data, 0, 1000, None, &recipient).await;
-    let (vaa1, msg1) = post_transfer_vaa(&mut ctx, &test_data, 1, 2000, None, &recipient).await;
+    let (vaa0, msg0) = post_transfer_vaa(&mut ctx, 0, 1000, None, &recipient).await;
+    let (vaa1, msg1) = post_transfer_vaa(&mut ctx, 1, 2000, None, &recipient).await;
 
-    let inbound_limit_before = inbound_capacity(&mut ctx, &test_data).await;
-    let outbound_limit_before = outbound_capacity(&mut ctx, &test_data).await;
+    let inbound_limit_before = inbound_capacity(&mut ctx).await;
+    let outbound_limit_before = outbound_capacity(&mut ctx).await;
 
     receive_message(
-        &test_data.ntt,
-        init_receive_message_accs(&mut ctx, &test_data, vaa0, OTHER_CHAIN, 0),
+        &GoodNTT {},
+        init_receive_message_accs(&mut ctx, vaa0, OTHER_CHAIN, 0),
     )
     .submit(&mut ctx)
     .await
     .unwrap();
 
     redeem(
-        &test_data.ntt,
+        &GoodNTT {},
         init_redeem_accs(&mut ctx, &test_data, OTHER_CHAIN, msg0),
         RedeemArgs {},
     )
@@ -198,14 +197,11 @@ async fn test_cancel() {
     .await
     .unwrap();
 
-    assert_eq!(
-        outbound_limit_before,
-        outbound_capacity(&mut ctx, &test_data).await
-    );
+    assert_eq!(outbound_limit_before, outbound_capacity(&mut ctx).await);
 
     assert_eq!(
         inbound_limit_before - 1000,
-        inbound_capacity(&mut ctx, &test_data).await
+        inbound_capacity(&mut ctx).await
     );
 
     let outbox_item = Keypair::new();
@@ -214,7 +210,7 @@ async fn test_cancel() {
         init_transfer_accs_args(&mut ctx, &test_data, outbox_item.pubkey(), 7000, true);
 
     approve_token_authority(
-        &test_data.ntt,
+        &GoodNTT {},
         &test_data.user_token_account,
         &test_data.user.pubkey(),
         args.amount,
@@ -222,32 +218,29 @@ async fn test_cancel() {
     .submit_with_signers(&[&test_data.user], &mut ctx)
     .await
     .unwrap();
-    transfer(&test_data.ntt, accs, args, Mode::Locking)
+    transfer(&GoodNTT {}, accs, args, Mode::Locking)
         .submit_with_signers(&[&test_data.user, &outbox_item], &mut ctx)
         .await
         .unwrap();
 
     assert_eq!(
         outbound_limit_before - 7000,
-        outbound_capacity(&mut ctx, &test_data).await
+        outbound_capacity(&mut ctx).await
     );
 
     // fully replenished
-    assert_eq!(
-        inbound_limit_before,
-        inbound_capacity(&mut ctx, &test_data).await
-    );
+    assert_eq!(inbound_limit_before, inbound_capacity(&mut ctx).await);
 
     receive_message(
-        &test_data.ntt,
-        init_receive_message_accs(&mut ctx, &test_data, vaa1, OTHER_CHAIN, 1),
+        &GoodNTT {},
+        init_receive_message_accs(&mut ctx, vaa1, OTHER_CHAIN, 1),
     )
     .submit(&mut ctx)
     .await
     .unwrap();
 
     redeem(
-        &test_data.ntt,
+        &GoodNTT {},
         init_redeem_accs(&mut ctx, &test_data, OTHER_CHAIN, msg1),
         RedeemArgs {},
     )
@@ -257,12 +250,12 @@ async fn test_cancel() {
 
     assert_eq!(
         outbound_limit_before - 5000,
-        outbound_capacity(&mut ctx, &test_data).await
+        outbound_capacity(&mut ctx).await
     );
 
     assert_eq!(
         inbound_limit_before - 2000,
-        inbound_capacity(&mut ctx, &test_data).await
+        inbound_capacity(&mut ctx).await
     );
 }
 
@@ -272,26 +265,19 @@ async fn test_wrong_recipient_ntt_manager() {
     let recipient = Keypair::new();
     let (mut ctx, test_data) = setup(Mode::Locking).await;
 
-    let (vaa0, msg0) = post_transfer_vaa(
-        &mut ctx,
-        &test_data,
-        0,
-        1000,
-        Some(&Pubkey::default()),
-        &recipient,
-    )
-    .await;
+    let (vaa0, msg0) =
+        post_transfer_vaa(&mut ctx, 0, 1000, Some(&Pubkey::default()), &recipient).await;
 
     receive_message(
-        &test_data.ntt,
-        init_receive_message_accs(&mut ctx, &test_data, vaa0, OTHER_CHAIN, 0),
+        &GoodNTT {},
+        init_receive_message_accs(&mut ctx, vaa0, OTHER_CHAIN, 0),
     )
     .submit(&mut ctx)
     .await
     .unwrap();
 
     let err = redeem(
-        &test_data.ntt,
+        &GoodNTT {},
         init_redeem_accs(&mut ctx, &test_data, OTHER_CHAIN, msg0),
         RedeemArgs {},
     )

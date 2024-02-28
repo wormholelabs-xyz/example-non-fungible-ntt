@@ -17,9 +17,12 @@ use wormhole_solana_utils::cpi::bpf_loader_upgradeable;
 
 use crate::{
     common::{query::GetAccountDataAnchor, setup::setup, submit::Submittable},
-    sdk::instructions::{
-        admin::{set_paused, SetPaused},
-        post_vaa::post_vaa,
+    sdk::{
+        accounts::{GoodNTT, NTTAccounts},
+        instructions::{
+            admin::{set_paused, SetPaused},
+            post_vaa::post_vaa,
+        },
     },
 };
 
@@ -58,16 +61,16 @@ async fn test_governance() {
     let ix = example_native_token_transfers::instruction::TransferOwnership;
 
     let accs = example_native_token_transfers::accounts::TransferOwnership {
-        config: test_data.ntt.config(),
+        config: GoodNTT {}.config(),
         owner: test_data.program_owner.pubkey(),
         new_owner: governance_pda,
-        upgrade_lock: test_data.ntt.upgrade_lock(),
-        program_data: test_data.ntt.program_data(),
+        upgrade_lock: GoodNTT {}.upgrade_lock(),
+        program_data: GoodNTT {}.program_data(),
         bpf_loader_upgradeable_program: bpf_loader_upgradeable::id(),
     };
 
     Instruction {
-        program_id: test_data.ntt.program,
+        program_id: GoodNTT {}.program(),
         accounts: accs.to_account_metas(None),
         data: ix.data(),
     }
@@ -79,14 +82,14 @@ async fn test_governance() {
     let inner_ix_data = example_native_token_transfers::instruction::ClaimOwnership {};
     let inner_ix_accs = example_native_token_transfers::accounts::ClaimOwnership {
         new_owner: OWNER,
-        config: test_data.ntt.config(),
-        upgrade_lock: test_data.ntt.upgrade_lock(),
-        program_data: test_data.ntt.program_data(),
+        config: GoodNTT {}.config(),
+        upgrade_lock: GoodNTT {}.upgrade_lock(),
+        program_data: GoodNTT {}.program_data(),
         bpf_loader_upgradeable_program: bpf_loader_upgradeable::id(),
     };
 
     let inner_ix: Instruction = Instruction {
-        program_id: test_data.ntt.program,
+        program_id: GoodNTT {}.program(),
         accounts: inner_ix_accs.to_account_metas(None),
         data: inner_ix_data.data(),
     };
@@ -94,7 +97,7 @@ async fn test_governance() {
     wrap_governance(
         &mut ctx,
         &test_data.governance,
-        &test_data.ntt.wormhole,
+        &GoodNTT {}.wormhole(),
         inner_ix,
         None,
     )
@@ -105,14 +108,14 @@ async fn test_governance() {
     wrap_governance(
         &mut ctx,
         &test_data.governance,
-        &test_data.ntt.wormhole,
-        set_paused(&test_data.ntt, SetPaused { owner: OWNER }, true),
+        &GoodNTT {}.wormhole(),
+        set_paused(&GoodNTT {}, SetPaused { owner: OWNER }, true),
         None,
     )
     .await
     .unwrap();
 
-    let config_account: Config = ctx.get_account_data_anchor(test_data.ntt.config()).await;
+    let config_account: Config = ctx.get_account_data_anchor(GoodNTT {}.config()).await;
     assert!(config_account.paused);
 }
 
@@ -123,8 +126,8 @@ async fn test_governance_bad_emitter() {
     let err = wrap_governance(
         &mut ctx,
         &test_data.governance,
-        &test_data.ntt.wormhole,
-        set_paused(&test_data.ntt, SetPaused { owner: OWNER }, true),
+        &GoodNTT {}.wormhole(),
+        set_paused(&GoodNTT {}, SetPaused { owner: OWNER }, true),
         Some(Address::default()),
     )
     .await
