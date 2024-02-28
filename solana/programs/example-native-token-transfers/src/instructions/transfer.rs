@@ -101,7 +101,6 @@ pub struct TransferBurn<'info> {
     pub peer: Account<'info, NttManagerPeer>,
 }
 
-// TODO: fees for relaying?
 pub fn transfer_burn(ctx: Context<TransferBurn>, args: TransferArgs) -> Result<()> {
     require_eq!(
         ctx.accounts.common.config.mode,
@@ -181,11 +180,10 @@ pub struct TransferLock<'info> {
         token::mint = common.mint,
         token::authority = common.token_authority,
     )]
+    // TODO: should we enforce an ATA?
     pub custody: InterfaceAccount<'info, token_interface::TokenAccount>,
 }
 
-// TODO: fees for relaying?
-// TODO: factor out common bits
 pub fn transfer_lock(ctx: Context<TransferLock>, args: TransferArgs) -> Result<()> {
     require_eq!(
         ctx.accounts.common.config.mode,
