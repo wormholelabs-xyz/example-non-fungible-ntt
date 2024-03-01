@@ -94,7 +94,6 @@ pub struct TransferBurn<'info> {
     pub peer: Account<'info, NttManagerPeer>,
 }
 
-// TODO: fees for relaying?
 pub fn transfer_burn(ctx: Context<TransferBurn>, args: TransferArgs) -> Result<()> {
     require_eq!(
         ctx.accounts.common.config.mode,
@@ -117,6 +116,8 @@ pub fn transfer_burn(ctx: Context<TransferBurn>, args: TransferArgs) -> Result<(
         accs.peer.token_decimals,
     );
 
+    let before = accs.common.from.amount;
+
     token_interface::burn(
         CpiContext::new_with_signer(
             accs.common.token_program.to_account_info(),
@@ -132,6 +133,13 @@ pub fn transfer_burn(ctx: Context<TransferBurn>, args: TransferArgs) -> Result<(
         ),
         amount,
     )?;
+
+    accs.common.from.reload()?;
+    let after = accs.common.from.amount;
+
+    if after != before - amount {
+        return Err(NTTError::BadAmountAfterBurn.into());
+    }
 
     let recipient_ntt_manager = accs.peer.address;
 
@@ -177,8 +185,6 @@ pub struct TransferLock<'info> {
     pub custody: InterfaceAccount<'info, token_interface::TokenAccount>,
 }
 
-// TODO: fees for relaying?
-// TODO: factor out common bits
 pub fn transfer_lock(ctx: Context<TransferLock>, args: TransferArgs) -> Result<()> {
     require_eq!(
         ctx.accounts.common.config.mode,
@@ -201,6 +207,8 @@ pub fn transfer_lock(ctx: Context<TransferLock>, args: TransferArgs) -> Result<(
         accs.peer.token_decimals,
     );
 
+    let before = accs.custody.amount;
+
     token_interface::transfer_checked(
         CpiContext::new_with_signer(
             accs.common.token_program.to_account_info(),
@@ -218,6 +226,21 @@ pub fn transfer_lock(ctx: Context<TransferLock>, args: TransferArgs) -> Result<(
         amount,
         accs.common.mint.decimals,
     )?;
+
+    accs.custody.reload()?;
+    let after = accs.custody.amount;
+
+    // NOTE: we currently do not support tokens with fees. Support could be
+    // added, but it would require the client to calculate the amount _before_
+    // paying fees that results in an amount that can safely be trimmed.
+    // Otherwise, if the amount after paying fees has dust, then that amount
+    // would be lost.
+    // To support fee tokens, we would first transfer the amount, _then_ assert
+    // that the resulting amount has no dust (instead of removing dust before
+    // the transfer like we do now).
+    if after != before + amount {
+        return Err(NTTError::BadAmountAfterTransfer.into());
+    }
 
     let recipient_ntt_manager = accs.peer.address;
 
